@@ -1,0 +1,290 @@
+---
+title: "Adjust"
+description: "The Adjust integration automatically sends Superwall subscription and payment events to Adjust via their server-to-server (S2S) API. Track subscription lifecycle events and attribute revenue to your mobile acquisition campaigns."
+---
+
+In the **Analytics** section within **Integrations**, you can connect your Adjust account to Superwall:
+
+<Frame>![](/images/integrations-adjust.jpeg)</Frame>
+
+### Required fields
+
+Fill out the following fields and **click** the **Enable Adjust** button at the bottom right to save your changes:
+
+<Frame>![](/images/integrations-config-adjust.jpeg)</Frame>
+
+- **App Token:** Your Adjust app token from the Adjust Dashboard.
+- **Event Token:** Event token for subscription events from your Adjust Dashboard.
+- **S2S Token:** Optional S2S authentication token. Required when S2S security is enabled in Adjust.
+- **Sales Reporting:** Which revenue value to report. Choose between **Proceeds** (after store taxes & fees) or **Revenue**.
+
+<Callout type="warn">
+**Device ID Required**: The Adjust integration requires `adjustId` to be present in your `userAttributes`. Events without an Adjust Device ID will be skipped.
+</Callout>
+
+### Features
+
+- **Server-to-Server Integration**: Direct API calls to Adjust's S2S endpoint
+- **Device Attribution**: Links subscription events to device identifiers (ADID, IDFA, GPS ADID)
+- **Revenue Tracking**: Automatic revenue attribution with currency support
+- **Custom Event Data**: Sends detailed subscription metadata via callback parameters
+- **Platform Detection**: Automatically identifies iOS vs Android based on store
+- **S2S Security**: Optional authentication token for secure event submission
+
+### Configuration
+
+#### Required settings
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `app_token` | Your Adjust app token | `"abc123xyz"` |
+| `event_token` | Event token for subscription events | `"def456uvw"` |
+| `sales_reporting` | Which value to report | `"Revenue"` or `"Proceeds"` |
+
+#### Optional settings
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `s2s_token` | S2S authentication token (required when S2S security is enabled) | `"ghi789rst"` |
+| `eventNameMappings` | Custom event name overrides | `{"sw_trial_start": "Trial Began"}` |
+
+#### Example configuration
+
+```json
+{
+  "integration_id": "adjust",
+  "app_token": "your_app_token_here",
+  "event_token": "your_event_token_here",
+  "s2s_token": "your_s2s_token_here",
+  "sales_reporting": "Revenue"
+}
+```
+
+### Event mapping
+
+Superwall events are transformed into Adjust events with standardized `sw_` prefixed names:
+
+#### Trial events
+| Superwall Event | Adjust Event | Description |
+|-----------------|--------------|-------------|
+| `initial_purchase` + `periodType: TRIAL` | `sw_trial_start` | Trial period begins |
+| `cancellation` + `periodType: TRIAL` | `sw_trial_cancelled` | Trial cancelled |
+| `uncancellation` + `periodType: TRIAL` | `sw_trial_uncancelled` | Trial reactivated |
+| `expiration` + `periodType: TRIAL` | `sw_trial_expired` | Trial ended |
+| `renewal` + `isTrialConversion: true` | `sw_trial_converted` | Trial converted to paid |
+
+#### Intro offer events
+| Superwall Event | Adjust Event | Description |
+|-----------------|--------------|-------------|
+| `initial_purchase` + `periodType: INTRO` | `sw_intro_offer_start` | Intro offer begins |
+| `cancellation` + `periodType: INTRO` | `sw_intro_offer_cancelled` | Intro offer cancelled |
+| `uncancellation` + `periodType: INTRO` | `sw_intro_offer_uncancelled` | Intro offer reactivated |
+| `expiration` + `periodType: INTRO` | `sw_intro_offer_expired` | Intro offer ended |
+| `renewal` + `periodType: INTRO` | `sw_intro_offer_converted` | Intro converted to regular |
+
+#### Subscription events
+| Superwall Event | Adjust Event | Description |
+|-----------------|--------------|-------------|
+| `initial_purchase` + `periodType: NORMAL` | `sw_subscription_start` | Subscription begins |
+| `renewal` + `periodType: NORMAL` | `sw_renewal` | Subscription renewed |
+| `cancellation` + `periodType: NORMAL` | `sw_subscription_cancelled` | Subscription cancelled |
+| `uncancellation` + `periodType: NORMAL` | `sw_subscription_uncancelled` | Subscription reactivated |
+| `expiration` + `periodType: NORMAL` | `sw_subscription_expired` | Subscription ended |
+| `subscription_paused` | `sw_subscription_paused` | Subscription paused |
+| `billing_issue` | `sw_billing_issue` | Payment failed |
+
+#### Other events
+| Superwall Event | Adjust Event | Description |
+|-----------------|--------------|-------------|
+| `product_change` | `sw_product_change` | Plan changed |
+| `non_renewing_purchase` | `sw_non_renewing_purchase` | One-time purchase |
+| Any event with `price < 0` | `sw_refund` | Refund processed |
+
+### Event properties
+
+Events sent to Adjust include the following data:
+
+#### Core Adjust fields
+- `app_token`: Your Adjust app identifier
+- `event_token`: The configured event token
+- `s2s`: Always set to `"1"` for server-to-server
+- `adid`: Adjust Device ID (required)
+- `idfa`: iOS IDFA (when available on iOS)
+- `gps_adid`: Google Advertising ID (when available on Android)
+- `environment`: `"production"` or `"sandbox"`
+- `created_at_unix`: Event timestamp in Unix seconds
+
+#### Revenue fields (when applicable)
+- `revenue`: Transaction amount (based on sales_reporting setting)
+- `currency`: Currency code (e.g., `"USD"`)
+
+#### Callback parameters
+Subscription metadata is sent as a JSON-encoded string in `callback_params`:
+- `event_name`: The mapped event name (e.g., "Trial Start")
+- `product_id`: Product identifier
+- `transaction_id`: Transaction ID
+- `original_transaction_id`: Original transaction ID
+
+### Device identification
+
+<Callout type="info">
+The Adjust integration requires device identifiers to attribute events. Unlike other integrations, **adjustId is mandatory**.
+</Callout>
+
+#### Required identifier
+- **Adjust Device ID (ADID)**: Must be present in `userAttributes.adjustId`
+
+#### Platform-specific identifiers
+- **iOS (App Store)**: Uses IDFA from `userAttributes.idfa` if available
+- **Android (Play Store)**: Uses GPS ADID from `userAttributes.advertisingId` if available
+
+#### Identifier priority
+1. `adjustId` is always required and sent as `adid`
+2. Platform-specific ID (IDFA or GPS ADID) is sent when available
+3. Events without `adjustId` are **skipped** with a warning
+
+### Revenue tracking
+
+#### Automatic revenue attribution
+
+Revenue is tracked for events with non-zero amounts:
+- **Positive revenue**: Purchases, renewals, conversions
+- **Zero revenue**: Revenue field is omitted (not sent as 0)
+
+#### Revenue reporting options
+
+The `sales_reporting` setting determines which value is used:
+
+| Setting | Value Used | Description |
+|---------|------------|-------------|
+| `"Revenue"` | `price` | Gross revenue before store fees |
+| `"Proceeds"` | `proceeds` | Net revenue after store fees |
+
+### Sandbox handling
+
+<Callout type="warn">
+**Sandbox events are not supported.** The Adjust S2S API does not differentiate between sandbox and production environments in the same way other platforms do.
+</Callout>
+
+All sandbox events are automatically skipped to prevent test data from affecting your attribution data. Only production events are sent to Adjust.
+
+### Testing the integration
+
+#### 1. Configure device identifiers
+Ensure your app sends the Adjust Device ID to Superwall:
+```swift
+// iOS example
+Superwall.shared.setUserAttributes([
+    "adjustId": Adjust.adid() ?? "",
+    "idfa": ASIdentifierManager.shared().advertisingIdentifier.uuidString
+])
+```
+
+```kotlin
+// Android example
+Superwall.instance.setUserAttributes(mapOf(
+    "adjustId" to Adjust.getAdid(),
+    "advertisingId" to advertisingId
+))
+```
+
+#### 2. Trigger production events
+- Use real devices with valid Adjust Device IDs
+- Make test purchases in production (you can refund afterward)
+- Verify events appear in Adjust Dashboard
+
+#### 3. Verify in Adjust
+Check your Adjust Dashboard:
+1. Navigate to your app
+2. Check Event Logs for incoming S2S events
+3. Verify revenue attribution
+4. Confirm device linking
+
+### Best practices
+
+1. **Always send adjustId**: Ensure your app captures and sends the Adjust Device ID before any purchases
+2. **Include platform IDs**: Send IDFA (iOS) or GPS ADID (Android) for better attribution
+3. **Use S2S security**: Enable S2S authentication in Adjust Dashboard and configure `s2s_token`
+4. **Choose revenue model**: Decide between gross (Revenue) vs net (Proceeds) consistently
+5. **Monitor event delivery**: Check Adjust Dashboard regularly for event delivery status
+6. **Handle attribution windows**: Events must arrive within 58 days of occurring
+
+### Common use cases
+
+#### Campaign attribution
+```
+Events: sw_subscription_start, sw_renewal
+Metric: Revenue attributed to campaigns
+Segment by: network, campaign, adgroup
+```
+
+#### Trial conversion tracking
+```
+1. sw_trial_start (attributed to campaign)
+2. sw_trial_converted (revenue credited)
+Conversion Rate: Step 2 / Step 1
+```
+
+#### LTV by acquisition source
+```
+Revenue Events: All events with revenue > 0
+Group by: campaign source
+Calculate: Sum of revenue per user cohort
+```
+
+#### Churn attribution
+```
+Events: sw_subscription_cancelled
+Segment by: acquisition source, time since acquisition
+```
+
+### Troubleshooting
+
+#### Events not appearing
+
+1. **Check adjustId**: Verify `userAttributes.adjustId` is set and not empty
+2. **Check environment**: Only production events are sent (sandbox is skipped)
+3. **Check tokens**: Verify app_token and event_token are correct
+4. **Check S2S token**: If S2S security is enabled, ensure s2s_token is configured
+
+#### Authentication errors
+
+1. **S2S security enabled**: If you receive 401/403 errors, ensure s2s_token is configured
+2. **Token mismatch**: Verify tokens match those in Adjust Dashboard
+3. **App token**: Confirm app_token is from the correct app
+
+#### Revenue not tracking
+
+1. **Check amount**: Only non-zero amounts include revenue
+2. **Check currency**: Verify currencyCode is present in webhook
+3. **Check settings**: Verify Revenue vs Proceeds selection
+
+#### Missing device identifiers
+
+1. **adjustId required**: Events without adjustId are skipped
+2. **Check SDK integration**: Ensure Adjust SDK is properly initialized before purchases
+3. **Timing**: adjustId must be available before subscription events occur
+
+### Rate limits
+
+Adjust S2S API constraints:
+- **Event timing**: Events should arrive chronologically per device/token
+- **Submission window**: Events must be submitted within 58 days of occurring
+- **Minimum revenue**: 0.001 for revenue tracking
+- **Parameters**: Case-sensitive
+
+### API details
+
+The integration sends events to Adjust using:
+- **Endpoint**: `https://s2s.adjust.com/event`
+- **Method**: POST with URL query parameters
+- **Authentication**: Bearer token via `Authorization` header (when s2s_token is configured)
+- **Format**: URL-encoded parameters (not JSON body)
+
+### Data privacy
+
+- **Device IDs**: Pseudonymous identifiers (ADID, IDFA, GPS ADID)
+- **User consent**: Ensure proper consent for advertising identifiers
+- **Data retention**: Follows Adjust project settings
+- **GDPR/CCPA**: Handle via Adjust's privacy tools
+- **ATT (iOS)**: IDFA availability depends on App Tracking Transparency consent
